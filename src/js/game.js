@@ -162,25 +162,26 @@ function decideGhost( game, g ) {
   // Sin salida (callejon): permitir el giro de 180.
   const choices = options.length ? options : [ '' + OPPOSITE[ g.dir ] ];
 
+  let target = null;
   if ( g.kind === 'hunter' ) {
-    const px = Math.round( p.x );
-    const py = Math.round( p.y );
-    let best = choices[ 0 ];
-    let bestDist = Infinity;
-    for ( const dir of choices ) {
-      const d = DIRS[ dir ];
-      const nx = g.x + d.x;
-      const ny = g.y + d.y;
-      const dist = Math.abs( nx - px ) + Math.abs( ny - py );
-      if ( dist < bestDist ) {
-        bestDist = dist;
-        best = dir;
-      }
-    }
-    g.dir = best;
-  } else {
-    g.dir = choices[ Math.floor( Math.random() * choices.length ) ];
+    target = { x: Math.round( p.x ), y: Math.round( p.y ) };
+  } else if ( g.kind === 'ambusher' ) {
+    const d = DIRS[ p.dir ] || { x: 0, y: 0 };
+    target = {
+      x: Math.round( p.x ) + d.x * 4,
+      y: Math.round( p.y ) + d.y * 4,
+    };
   }
+
+  if ( target ) {
+    const path = findPath( grid, { x: g.x, y: g.y }, target, 'ghost' );
+    if ( path && path.length ) {
+      g.dir = path[ 0 ];
+      return;
+    }
+  }
+
+  g.dir = choices[ Math.floor( Math.random() * choices.length ) ];
 }
 
 function moveGhost( game, g ) {
