@@ -74,6 +74,47 @@ function canMove( grid, x, y, dir, actor ) {
   return !isWall( grid, tx, ty, actor );
 }
 
+// Busca la ruta más corta entre celdas usando las reglas de paso del actor.
+// El túnel conecta los extremos de su fila; los fantasmas pueden cruzar la puerta.
+function findPath( grid, start, target, actor = 'ghost' ) {
+  const width = grid[ 0 ].length;
+  const startKey = `${ start.x },${ start.y }`;
+  const targetKey = `${ target.x },${ target.y }`;
+  const queue = [ { x: start.x, y: start.y, key: startKey } ];
+  const previous = new Map( [ [ startKey, null ] ] );
+
+  for ( let head = 0; head < queue.length; head++ ) {
+    const current = queue[ head ];
+    if ( current.key === targetKey ) {
+      const path = [];
+      let key = targetKey;
+      while ( key !== startKey ) {
+        const step = previous.get( key );
+        if ( !step ) return null;
+        path.push( step.dir );
+        key = step.from;
+      }
+      return path.reverse();
+    }
+
+    for ( const dir of Object.keys( DIRS ) ) {
+      if ( !canMove( grid, current.x, current.y, dir, actor ) ) continue;
+      const d = DIRS[ dir ];
+      let x = current.x + d.x;
+      const y = current.y + d.y;
+      if ( y === TUNNEL_ROW && x < 0 ) x = width - 1;
+      else if ( y === TUNNEL_ROW && x >= width ) x = 0;
+
+      const key = `${ x },${ y }`;
+      if ( previous.has( key ) ) continue;
+      previous.set( key, { from: current.key, dir } );
+      queue.push( { x, y, key } );
+    }
+  }
+
+  return null;
+}
+
 function wrapTunnel( a, width ) {
   if ( Math.round( a.y ) === TUNNEL_ROW ) {
     if ( a.x < 0 ) a.x += width;
