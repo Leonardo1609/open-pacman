@@ -5,6 +5,9 @@ const TILE = 20;
 const WALL_COLOR = '#2121ff';
 const DOOR_COLOR = '#ffb8ff';
 const DOT_COLOR = '#ffb897';
+const VULNERABLE_GHOST_COLOR = '#2121ff';
+const POWER_FLASH_WINDOW_MS = 2000;
+const POWER_FLASH_INTERVAL_MS = 250;
 
 function cellCenter( x, y ) {
   return { cx: x * TILE + TILE / 2, cy: y * TILE + TILE / 2 };
@@ -79,6 +82,19 @@ function drawDots( ctx, grid ) {
   }
 }
 
+function drawPowerPellets( ctx, grid ) {
+  ctx.fillStyle = '#ffb897';
+  for ( let y = 0; y < grid.length; y++ ) {
+    for ( let x = 0; x < grid[ 0 ].length; x++ ) {
+      if ( grid[ y ][ x ] !== 4 ) continue;
+      const { cx, cy } = cellCenter( x, y );
+      ctx.beginPath();
+      ctx.arc( cx, cy, 6, 0, Math.PI * 2 );
+      ctx.fill();
+    }
+  }
+}
+
 function drawPacman( ctx, p, frame ) {
   const { cx, cy } = cellCenter( p.x, p.y );
   let rot = 0;
@@ -146,10 +162,22 @@ function drawHUD( ctx, game, W ) {
 
 const GHOST_COLORS = [ '#ff0000', '#00ffff', '#ffb8ff', '#ffb852' ];
 
+function getGhostColor( game, index, now ) {
+  const normalColor = GHOST_COLORS[ index ] || '#ff0000';
+  const remaining = game.powerUntil - now;
+  if ( remaining <= 0 ) return normalColor;
+  if ( remaining <= POWER_FLASH_WINDOW_MS ) {
+    const elapsed = POWER_FLASH_WINDOW_MS - remaining;
+    if ( Math.floor( elapsed / POWER_FLASH_INTERVAL_MS ) % 2 === 1 ) return '#fff';
+  }
+  return VULNERABLE_GHOST_COLOR;
+}
+
 function draw( ctx, game, frame ) {
   const grid = game.grid;
   const W = grid[ 0 ].length;
   const H = grid.length;
+  const now = Date.now();
 
   ctx.fillStyle = '#000';
   ctx.fillRect( 0, 0, W * TILE, H * TILE );
@@ -157,8 +185,9 @@ function draw( ctx, game, frame ) {
   drawWalls( ctx, grid );
   drawDoor( ctx, grid );
   drawDots( ctx, grid );
+  drawPowerPellets( ctx, grid );
   drawPacman( ctx, game.pacman, frame );
-  game.ghosts.forEach( ( g, i ) => drawGhost( ctx, g, GHOST_COLORS[ i ] || '#ff0000' ) );
+  game.ghosts.forEach( ( g, i ) => drawGhost( ctx, g, getGhostColor( game, i, now ) ) );
   drawHUD( ctx, game, W );
 }
 

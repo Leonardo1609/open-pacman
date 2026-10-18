@@ -1,6 +1,6 @@
 # SPEC 02 — Salidas iniciales diferenciadas de los fantasmas
 
-> **Estado:** Aprobado
+> **Estado:** Implemented
 > **Depende de:** SPEC 01
 > **Fecha:** 2026-10-18
 > **Objetivo:** Hacer que los cuatro fantasmas se dispersen por rutas iniciales asignadas antes de retomar sus estrategias habituales.

@@ -12,6 +12,8 @@ const OPPOSITE = { left: 'right', right: 'left', up: 'down', down: 'up' };
 
 const PACMAN_SPEED = 0.125; // 1/8 celda/frame -> alinea cada 8 frames
 const GHOST_SPEED = 0.1;    // 1/10 celda/frame
+const POWER_DURATION_MS = 8000;
+const GHOST_EAT_BONUSES = [ 200, 400, 800, 1600 ];
 const PATROL_POINTS = [
   { x: 1, y: 1 },
   { x: 26, y: 1 },
@@ -34,13 +36,15 @@ function createGame() {
   grid[ PACMAN_START.y ][ PACMAN_START.x ] = 0;
 
   let dots = 0;
-  for ( const row of grid ) for ( const v of row ) if ( v === 2 ) dots++;
+  for ( const row of grid ) for ( const v of row ) if ( v === 2 || v === 4 ) dots++;
 
   return {
     state: 'start',
     score: 0,
     lives: 3,
     dotsRemaining: dots,
+    powerUntil: 0,
+    ghostEatChain: 0,
     grid,
     pacman: {
       x: PACMAN_START.x,
@@ -175,7 +179,7 @@ function wrapTunnel( a, width ) {
   }
 }
 
-function movePacman( game ) {
+function movePacman( game, now ) {
   const p = game.pacman;
   const grid = game.grid;
   const width = grid[ 0 ].length;
@@ -189,11 +193,16 @@ function movePacman( game ) {
       p.dir = p.nextDir;
       p.nextDir = null;
     }
-    // Comer dot.
-    if ( grid[ p.y ][ p.x ] === 2 ) {
+    // Comer dot o Power Pellet.
+    const tile = grid[ p.y ][ p.x ];
+    if ( tile === 2 || tile === 4 ) {
       grid[ p.y ][ p.x ] = 0;
-      game.score += 10;
+      game.score += tile === 4 ? 50 : 10;
       game.dotsRemaining--;
+      if ( tile === 4 ) {
+        game.powerUntil = now + POWER_DURATION_MS;
+        game.ghostEatChain = 0;
+      }
     }
     // Si no puede seguir, se detiene en la celda.
     if ( !canMove( grid, p.x, p.y, p.dir, 'pacman' ) ) return;
@@ -312,19 +321,22 @@ function moveGhost( game, g ) {
   wrapTunnel( g, width );
 }
 
+function resetGhostPosition( g, index ) {
+  const start = GHOST_STARTS[ index ];
+  g.x = start.x;
+  g.y = start.y;
+  g.dir = 'up';
+  g.openingActive = true;
+  if ( g.kind === 'patroller' ) g.patrolIndex = 0;
+}
+
 function resetPositions( game ) {
   const p = game.pacman;
   p.x = PACMAN_START.x;
   p.y = PACMAN_START.y;
   p.dir = 'left';
   p.nextDir = null;
-  game.ghosts.forEach( ( g, i ) => {
-    g.x = GHOST_STARTS[ i ].x;
-    g.y = GHOST_STARTS[ i ].y;
-    g.dir = 'up';
-    g.openingActive = true;
-    if ( g.kind === 'patroller' ) g.patrolIndex = 0;
-  } );
+  game.ghosts.forEach( resetGhostPosition );
 }
 
 function collides( a, b ) {
@@ -332,12 +344,28 @@ function collides( a, b ) {
 }
 
 function update( game ) {
-  movePacman( game );
+  const now = Date.now();
+  if ( game.powerUntil && now >= game.powerUntil ) {
+    game.powerUntil = 0;
+    game.ghostEatChain = 0;
+  }
+
+  movePacman( game, now );
   game.ghosts.forEach( ( g ) => moveGhost( game, g ) );
 
-  for ( const g of game.ghosts ) {
+  for ( let i = 0; i < game.ghosts.length; i++ ) {
+    const g = game.ghosts[ i ];
     if ( collides( game.pacman, g ) ) {
+      if ( game.powerUntil > now ) {
+        game.score += GHOST_EAT_BONUSES[ Math.min( game.ghostEatChain, 3 ) ];
+        game.ghostEatChain = Math.min( game.ghostEatChain + 1, 4 );
+        resetGhostPosition( g, i );
+        continue;
+      }
+
       game.lives--;
+      game.powerUntil = 0;
+      game.ghostEatChain = 0;
       if ( game.lives <= 0 ) {
         game.state = 'lost';
         return;
