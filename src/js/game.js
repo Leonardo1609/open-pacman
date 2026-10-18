@@ -12,6 +12,12 @@ const OPPOSITE = { left: 'right', right: 'left', up: 'down', down: 'up' };
 
 const PACMAN_SPEED = 0.125; // 1/8 celda/frame -> alinea cada 8 frames
 const GHOST_SPEED = 0.1;    // 1/10 celda/frame
+const PATROL_POINTS = [
+  { x: 1, y: 1 },
+  { x: 26, y: 1 },
+  { x: 26, y: 29 },
+  { x: 1, y: 29 },
+];
 
 // Crea una partida nueva. Copia MAZE (pristino) a game.grid para poder comer
 // dots sin destruir el original, y reiniciar.
@@ -42,6 +48,7 @@ function createGame() {
       dir: 'up',
       speed: GHOST_SPEED,
       kind: g.kind,
+      ...( g.kind === 'patroller' ? { patrolIndex: 0 } : {} ),
     } ) ),
   };
 }
@@ -71,6 +78,86 @@ function canMove( grid, x, y, dir, actor ) {
   // Tunel: salir por un borde en la fila del tunel siempre es valido.
   if ( ty === TUNNEL_ROW && ( tx < 0 || tx >= grid[ 0 ].length ) ) return true;
   return !isWall( grid, tx, ty, actor );
+}
+
+function nextCell( grid, x, y, dir, actor ) {
+  if ( !canMove( grid, x, y, dir, actor ) ) return null;
+  const d = DIRS[ dir ];
+  let nextX = x + d.x;
+  const nextY = y + d.y;
+  const width = grid[ 0 ].length;
+  if ( nextY === TUNNEL_ROW && nextX < 0 ) nextX = width - 1;
+  else if ( nextY === TUNNEL_ROW && nextX >= width ) nextX = 0;
+  return { x: nextX, y: nextY };
+}
+
+function isValidCell( grid, cell, actor ) {
+  return Number.isInteger( cell.x ) && Number.isInteger( cell.y ) &&
+    !isWall( grid, cell.x, cell.y, actor );
+}
+
+// Busca la ruta más corta entre celdas usando las reglas de paso del actor.
+// El túnel conecta los extremos de su fila; los fantasmas pueden cruzar la puerta.
+function findPath( grid, start, target, actor = 'ghost' ) {
+  const startKey = `${ start.x },${ start.y }`;
+  const targetKey = `${ target.x },${ target.y }`;
+  const queue = [ { x: start.x, y: start.y, key: startKey } ];
+  const previous = new Map( [ [ startKey, null ] ] );
+
+  for ( let head = 0; head < queue.length; head++ ) {
+    const current = queue[ head ];
+    if ( current.key === targetKey ) {
+      const path = [];
+      let key = targetKey;
+      while ( key !== startKey ) {
+        const step = previous.get( key );
+        if ( !step ) return null;
+        path.push( step.dir );
+        key = step.from;
+      }
+      return path.reverse();
+    }
+
+    for ( const dir of Object.keys( DIRS ) ) {
+      const next = nextCell( grid, current.x, current.y, dir, actor );
+      if ( !next ) continue;
+      const { x, y } = next;
+      const key = `${ x },${ y }`;
+      if ( previous.has( key ) ) continue;
+      previous.set( key, { from: current.key, dir } );
+      queue.push( { x, y, key } );
+    }
+  }
+
+  return null;
+}
+
+// Elige la celda transitable y alcanzable más cercana al objetivo deseado.
+function findClosestReachableCell( grid, start, target, actor = 'ghost' ) {
+  const queue = [ { x: start.x, y: start.y } ];
+  const visited = new Set( [ `${ start.x },${ start.y }` ] );
+  let closest = queue[ 0 ];
+  let closestDistance = Math.abs( closest.x - target.x ) + Math.abs( closest.y - target.y );
+
+  for ( let head = 0; head < queue.length; head++ ) {
+    const current = queue[ head ];
+    const distance = Math.abs( current.x - target.x ) + Math.abs( current.y - target.y );
+    if ( distance < closestDistance ) {
+      closest = current;
+      closestDistance = distance;
+    }
+
+    for ( const dir of Object.keys( DIRS ) ) {
+      const next = nextCell( grid, current.x, current.y, dir, actor );
+      if ( !next ) continue;
+      const key = `${ next.x },${ next.y }`;
+      if ( visited.has( key ) ) continue;
+      visited.add( key );
+      queue.push( next );
+    }
+  }
+
+  return closest;
 }
 
 function wrapTunnel( a, width ) {
@@ -120,25 +207,44 @@ function decideGhost( game, g ) {
   // Sin salida (callejon): permitir el giro de 180.
   const choices = options.length ? options : [ '' + OPPOSITE[ g.dir ] ];
 
+  let target = null;
   if ( g.kind === 'hunter' ) {
-    const px = Math.round( p.x );
-    const py = Math.round( p.y );
-    let best = choices[ 0 ];
-    let bestDist = Infinity;
-    for ( const dir of choices ) {
-      const d = DIRS[ dir ];
-      const nx = g.x + d.x;
-      const ny = g.y + d.y;
-      const dist = Math.abs( nx - px ) + Math.abs( ny - py );
-      if ( dist < bestDist ) {
-        bestDist = dist;
-        best = dir;
-      }
+    target = { x: Math.round( p.x ), y: Math.round( p.y ) };
+  } else if ( g.kind === 'ambusher' ) {
+    const d = DIRS[ p.dir ] || { x: 0, y: 0 };
+    target = {
+      x: Math.round( p.x ) + d.x * 4,
+      y: Math.round( p.y ) + d.y * 4,
+    };
+  } else if ( g.kind === 'patroller' ) {
+    let patrolIndex = g.patrolIndex || 0;
+    let waypoint = PATROL_POINTS[ patrolIndex ];
+    if ( g.x === waypoint.x && g.y === waypoint.y ) {
+      patrolIndex = ( patrolIndex + 1 ) % PATROL_POINTS.length;
+      g.patrolIndex = patrolIndex;
+      waypoint = PATROL_POINTS[ patrolIndex ];
     }
-    g.dir = best;
-  } else {
-    g.dir = choices[ Math.floor( Math.random() * choices.length ) ];
+    target = waypoint;
   }
+
+  if ( target ) {
+    const start = { x: g.x, y: g.y };
+    let pathTarget = target;
+    if ( !isValidCell( grid, pathTarget, 'ghost' ) ) {
+      pathTarget = findClosestReachableCell( grid, start, target, 'ghost' );
+    }
+    let path = pathTarget && findPath( grid, start, pathTarget, 'ghost' );
+    if ( !path && pathTarget === target ) {
+      pathTarget = findClosestReachableCell( grid, start, target, 'ghost' );
+      path = findPath( grid, start, pathTarget, 'ghost' );
+    }
+    if ( path && path.length ) {
+      g.dir = path[ 0 ];
+      return;
+    }
+  }
+
+  g.dir = choices[ Math.floor( Math.random() * choices.length ) ];
 }
 
 function moveGhost( game, g ) {
@@ -168,6 +274,7 @@ function resetPositions( game ) {
     g.x = GHOST_STARTS[ i ].x;
     g.y = GHOST_STARTS[ i ].y;
     g.dir = 'up';
+    if ( g.kind === 'patroller' ) g.patrolIndex = 0;
   } );
 }
 
