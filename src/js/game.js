@@ -12,6 +12,12 @@ const OPPOSITE = { left: 'right', right: 'left', up: 'down', down: 'up' };
 
 const PACMAN_SPEED = 0.125; // 1/8 celda/frame -> alinea cada 8 frames
 const GHOST_SPEED = 0.1;    // 1/10 celda/frame
+const PATROL_POINTS = [
+  { x: 1, y: 1 },
+  { x: 26, y: 1 },
+  { x: 26, y: 29 },
+  { x: 1, y: 29 },
+];
 
 // Crea una partida nueva. Copia MAZE (pristino) a game.grid para poder comer
 // dots sin destruir el original, y reiniciar.
@@ -171,6 +177,15 @@ function decideGhost( game, g ) {
       x: Math.round( p.x ) + d.x * 4,
       y: Math.round( p.y ) + d.y * 4,
     };
+  } else if ( g.kind === 'patroller' ) {
+    let patrolIndex = g.patrolIndex || 0;
+    let waypoint = PATROL_POINTS[ patrolIndex ];
+    if ( g.x === waypoint.x && g.y === waypoint.y ) {
+      patrolIndex = ( patrolIndex + 1 ) % PATROL_POINTS.length;
+      g.patrolIndex = patrolIndex;
+      waypoint = PATROL_POINTS[ patrolIndex ];
+    }
+    target = waypoint;
   }
 
   if ( target ) {
