@@ -18,6 +18,13 @@ const PATROL_POINTS = [
   { x: 26, y: 29 },
   { x: 1, y: 29 },
 ];
+const GHOST_OPENING_TARGETS = {
+  hunter: { x: 1, y: 1 },
+  ambusher: { x: 26, y: 1 },
+  patroller: { x: 26, y: 29 },
+  erratic: { x: 1, y: 29 },
+};
+const GHOST_OPENING_EXIT_ROW = 11; // Primera fila del pasillo exterior a la jaula.
 
 // Crea una partida nueva. Copia MAZE (pristino) a game.grid para poder comer
 // dots sin destruir el original, y reiniciar.
@@ -48,6 +55,7 @@ function createGame() {
       dir: 'up',
       speed: GHOST_SPEED,
       kind: g.kind,
+      openingActive: true,
       ...( g.kind === 'patroller' ? { patrolIndex: 0 } : {} ),
     } ) ),
   };
@@ -197,9 +205,49 @@ function movePacman( game ) {
   wrapTunnel( p, width );
 }
 
+function isOpeningBranch( game, g, direction ) {
+  if ( g.y > GHOST_OPENING_EXIT_ROW ) return false;
+
+  return Object.entries( GHOST_OPENING_TARGETS ).every( ( [ kind, target ] ) => {
+    if ( kind === g.kind ) return true;
+    const path = findPath( game.grid, { x: g.x, y: g.y }, target, 'ghost' );
+    return path && path.length && path[ 0 ] !== direction;
+  } );
+}
+
+function decideOpeningRoute( game, g ) {
+  const target = GHOST_OPENING_TARGETS[ g.kind ];
+  if ( !target ) return false;
+
+  const start = { x: g.x, y: g.y };
+  let pathTarget = target;
+  if ( !isValidCell( game.grid, pathTarget, 'ghost' ) ) {
+    pathTarget = findClosestReachableCell( game.grid, start, target, 'ghost' );
+  }
+
+  let path = pathTarget && findPath( game.grid, start, pathTarget, 'ghost' );
+  if ( !path && pathTarget === target ) {
+    pathTarget = findClosestReachableCell( game.grid, start, target, 'ghost' );
+    path = findPath( game.grid, start, pathTarget, 'ghost' );
+  }
+
+  if ( path && path.length ) {
+    g.dir = path[ 0 ];
+    if ( isOpeningBranch( game, g, g.dir ) ) g.openingActive = false;
+    return true;
+  }
+
+  return false;
+}
+
 function decideGhost( game, g ) {
   const grid = game.grid;
   const p = game.pacman;
+
+  if ( g.openingActive ) {
+    if ( decideOpeningRoute( game, g ) ) return;
+    g.openingActive = false;
+  }
 
   const options = Object.keys( DIRS ).filter(
     ( dir ) => dir !== OPPOSITE[ g.dir ] && canMove( grid, g.x, g.y, dir, 'ghost' )
@@ -274,6 +322,7 @@ function resetPositions( game ) {
     g.x = GHOST_STARTS[ i ].x;
     g.y = GHOST_STARTS[ i ].y;
     g.dir = 'up';
+    g.openingActive = true;
     if ( g.kind === 'patroller' ) g.patrolIndex = 0;
   } );
 }
