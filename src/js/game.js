@@ -80,10 +80,25 @@ function canMove( grid, x, y, dir, actor ) {
   return !isWall( grid, tx, ty, actor );
 }
 
+function nextCell( grid, x, y, dir, actor ) {
+  if ( !canMove( grid, x, y, dir, actor ) ) return null;
+  const d = DIRS[ dir ];
+  let nextX = x + d.x;
+  const nextY = y + d.y;
+  const width = grid[ 0 ].length;
+  if ( nextY === TUNNEL_ROW && nextX < 0 ) nextX = width - 1;
+  else if ( nextY === TUNNEL_ROW && nextX >= width ) nextX = 0;
+  return { x: nextX, y: nextY };
+}
+
+function isValidCell( grid, cell, actor ) {
+  return Number.isInteger( cell.x ) && Number.isInteger( cell.y ) &&
+    !isWall( grid, cell.x, cell.y, actor );
+}
+
 // Busca la ruta más corta entre celdas usando las reglas de paso del actor.
 // El túnel conecta los extremos de su fila; los fantasmas pueden cruzar la puerta.
 function findPath( grid, start, target, actor = 'ghost' ) {
-  const width = grid[ 0 ].length;
   const startKey = `${ start.x },${ start.y }`;
   const targetKey = `${ target.x },${ target.y }`;
   const queue = [ { x: start.x, y: start.y, key: startKey } ];
@@ -104,13 +119,9 @@ function findPath( grid, start, target, actor = 'ghost' ) {
     }
 
     for ( const dir of Object.keys( DIRS ) ) {
-      if ( !canMove( grid, current.x, current.y, dir, actor ) ) continue;
-      const d = DIRS[ dir ];
-      let x = current.x + d.x;
-      const y = current.y + d.y;
-      if ( y === TUNNEL_ROW && x < 0 ) x = width - 1;
-      else if ( y === TUNNEL_ROW && x >= width ) x = 0;
-
+      const next = nextCell( grid, current.x, current.y, dir, actor );
+      if ( !next ) continue;
+      const { x, y } = next;
       const key = `${ x },${ y }`;
       if ( previous.has( key ) ) continue;
       previous.set( key, { from: current.key, dir } );
@@ -119,6 +130,34 @@ function findPath( grid, start, target, actor = 'ghost' ) {
   }
 
   return null;
+}
+
+// Elige la celda transitable y alcanzable más cercana al objetivo deseado.
+function findClosestReachableCell( grid, start, target, actor = 'ghost' ) {
+  const queue = [ { x: start.x, y: start.y } ];
+  const visited = new Set( [ `${ start.x },${ start.y }` ] );
+  let closest = queue[ 0 ];
+  let closestDistance = Math.abs( closest.x - target.x ) + Math.abs( closest.y - target.y );
+
+  for ( let head = 0; head < queue.length; head++ ) {
+    const current = queue[ head ];
+    const distance = Math.abs( current.x - target.x ) + Math.abs( current.y - target.y );
+    if ( distance < closestDistance ) {
+      closest = current;
+      closestDistance = distance;
+    }
+
+    for ( const dir of Object.keys( DIRS ) ) {
+      const next = nextCell( grid, current.x, current.y, dir, actor );
+      if ( !next ) continue;
+      const key = `${ next.x },${ next.y }`;
+      if ( visited.has( key ) ) continue;
+      visited.add( key );
+      queue.push( next );
+    }
+  }
+
+  return closest;
 }
 
 function wrapTunnel( a, width ) {
@@ -189,7 +228,16 @@ function decideGhost( game, g ) {
   }
 
   if ( target ) {
-    const path = findPath( grid, { x: g.x, y: g.y }, target, 'ghost' );
+    const start = { x: g.x, y: g.y };
+    let pathTarget = target;
+    if ( !isValidCell( grid, pathTarget, 'ghost' ) ) {
+      pathTarget = findClosestReachableCell( grid, start, target, 'ghost' );
+    }
+    let path = pathTarget && findPath( grid, start, pathTarget, 'ghost' );
+    if ( !path && pathTarget === target ) {
+      pathTarget = findClosestReachableCell( grid, start, target, 'ghost' );
+      path = findPath( grid, start, pathTarget, 'ghost' );
+    }
     if ( path && path.length ) {
       g.dir = path[ 0 ];
       return;
