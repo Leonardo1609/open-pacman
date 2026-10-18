@@ -1,6 +1,6 @@
 # SPEC 01 — Cuatro fantasmas inteligentes
 
-> **Estado:** Aprobado
+> **Estado:** Implemented
 > **Depende de:** Ninguna
 > **Fecha:** 2026-10-18
 > **Objetivo:** Añadir cuatro fantasmas con estrategias distintas, incluido uno que persigue a Pacman por la ruta transitable más corta.
